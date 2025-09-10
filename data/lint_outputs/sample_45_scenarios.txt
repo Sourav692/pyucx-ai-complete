@@ -1,0 +1,28 @@
+sales_etl_pipeline.ipynb:4:1: warning: [spark] enableHiveSupport() method is deprecated for Unity Catalog
+sales_etl_pipeline.ipynb:8:1: error: [compatibility] Table reference 'raw_sales_data' should use three-part naming (catalog.schema.table)
+sales_etl_pipeline.ipynb:9:1: error: [compatibility] Table reference 'customer_master' should use three-part naming (catalog.schema.table)
+sales_etl_pipeline.ipynb:10:1: error: [compatibility] Table reference 'product_catalog' should use three-part naming (catalog.schema.table)
+sales_etl_pipeline.ipynb:19:1: error: [compatibility] saveAsTable 'processed_sales_fact' should use three-part naming (catalog.schema.table)
+sales_etl_pipeline.ipynb:22:1: error: [sql] CREATE TABLE statement should specify catalog and schema
+sales_etl_pipeline.ipynb:22:1: error: [compatibility] Table reference 'sales_summary' in SQL should use three-part naming
+sales_etl_pipeline.ipynb:22:1: error: [compatibility] Table reference 'processed_sales_fact' in SQL should use three-part naming
+
+analytics_dashboard.ipynb:5:1: warning: [imports] databricks.sql module usage needs review for Unity Catalog compatibility
+analytics_dashboard.ipynb:8:1: warning: [spark] spark.sql.warehouse.dir configuration may need adjustment for Unity Catalog
+analytics_dashboard.ipynb:12:1: error: [compatibility] Direct reference to hive_metastore catalog is not recommended
+analytics_dashboard.ipynb:12:1: error: [compatibility] Table path 'hive_metastore.analytics.user_behavior' needs migration
+analytics_dashboard.ipynb:13:1: error: [compatibility] Table reference 'event_log' should use three-part naming (catalog.schema.table)
+analytics_dashboard.ipynb:14:1: error: [compatibility] Table reference 'performance_metrics' should use three-part naming (catalog.schema.table)
+analytics_dashboard.ipynb:18:1: error: [sql] Complex SQL query with table references needs UC migration
+analytics_dashboard.ipynb:25:1: error: [sql] Table 'event_log' in JOIN should use three-part naming
+analytics_dashboard.ipynb:26:1: error: [sql] Table 'user_profiles' in JOIN should use three-part naming
+analytics_dashboard.ipynb:31:1: error: [compatibility] saveAsTable 'analytics_summary' should use three-part naming (catalog.schema.table)
+analytics_dashboard.ipynb:34:1: warning: [databricks] dbutils.fs operations may need path adjustments for Unity Catalog
+analytics_dashboard.ipynb:34:1: warning: [databricks] File system paths should be reviewed for Unity Catalog external locations
+
+# Summary Statistics:
+# Total files analyzed: 2
+# Total issues found: 18
+# Errors: 14
+# Warnings: 4
+# Categories affected: compatibility (11), sql (4), spark (2), imports (1), databricks (2)
