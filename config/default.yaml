@@ -30,3 +30,18 @@ save_intermediate_results: true
 # Processing Configuration
 timeout_seconds: 300
 retry_attempts: 3
+
+# DSPy Configuration
+dspy:
+  enabled: true
+  model_optimization: true
+  optimization_data_path: "./dspy_optimization_data.json"
+  few_shot_examples: true
+  chain_of_thought: true
+  
+  # Model-specific settings
+  models:
+    analyzer:
+      use_dspy: true
+      optimization_enabled: true
+      confidence_threshold: 0.7

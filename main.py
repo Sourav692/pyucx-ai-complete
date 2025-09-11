@@ -24,8 +24,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src
 
 from src.utils.logging_setup import quick_setup
 from src.utils.config_manager import ConfigManager
-from src.core.langgraph_framework import (
-    PyUCXFramework, 
+from src.core.enhanced_langgraph_framework import (
+    EnhancedPyUCXFramework, 
     load_notebooks_from_folder,
     load_python_files_from_folder, 
     load_lint_data_from_file,
@@ -232,7 +232,7 @@ def run_analysis(
 
     try:
         # Initialize framework
-        framework = PyUCXFramework(config.get_all())
+        framework = EnhancedPyUCXFramework(config.get_all())
 
         # Run analysis
         results = framework.process_notebooks(
