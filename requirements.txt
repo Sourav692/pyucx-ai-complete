@@ -1,3 +1,7 @@
+streamlit==1.38.0
+# Visualization for lineage graph
+pyvis>=0.3.2
+jinja2>=3.1.0
 # Core dependencies
 langgraph==0.2.34
 langchain==0.3.0
@@ -17,7 +21,7 @@ rich>=13.0.0
 typer>=0.12.0
 
 # Database and storage
-sqlite3
+#sqlite3
 
 # Development dependencies
 pytest>=7.0.0
