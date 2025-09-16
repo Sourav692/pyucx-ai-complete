@@ -6,7 +6,6 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 
 from ..core.agent_state import AgentState
 
@@ -22,13 +21,29 @@ class BaseAgent(ABC):
         self.llm = self._setup_llm()
         self.agent_name = self.__class__.__name__.replace("Agent", "").lower()
 
-    def _setup_llm(self) -> ChatOpenAI:
+    def _setup_llm(self):
         """Setup the language model."""
-        return ChatOpenAI(
-            model=self.config.get("openai_model", "gpt-4o-mini"),
-            temperature=self.config.get("temperature", 0.1),
-            api_key=self.config.get("openai_api_key")
-        )
+        try:
+            # Import ChatOpenAI and handle Pydantic compatibility
+            from langchain_openai import ChatOpenAI
+            
+            # Try to fix Pydantic compatibility issues
+            try:
+                from langchain_core.callbacks import Callbacks
+                from langchain_core.caches import BaseCache
+                ChatOpenAI.model_rebuild()
+            except (ImportError, Exception):
+                # Fallback - proceed without model rebuild
+                pass
+            
+            return ChatOpenAI(
+                model=self.config.get("openai_model", "gpt-4o-mini"),
+                temperature=self.config.get("temperature", 0.1),
+                api_key=self.config.get("openai_api_key")
+            )
+        except Exception as e:
+            logger.error(f"Failed to setup ChatOpenAI: {e}")
+            raise
 
     @abstractmethod
     def execute(self, state: AgentState) -> AgentState:
