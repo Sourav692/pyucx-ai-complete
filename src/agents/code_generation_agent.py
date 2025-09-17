@@ -14,12 +14,18 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from .base_agent import BaseAgent
 from ..core.agent_state import AgentState, CodeModification
+from ..utils.code_processor import CodeSectionProcessor
 
 logger = logging.getLogger(__name__)
 
 
 class CodeGenerationAgent(BaseAgent):
     """Agent responsible for generating converted Unity Catalog notebooks."""
+
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize the code generation agent."""
+        super().__init__(config)
+        self.code_processor = CodeSectionProcessor()
 
     def execute(self, state: AgentState) -> AgentState:
         """Apply modifications and generate converted notebooks."""
@@ -153,33 +159,53 @@ class CodeGenerationAgent(BaseAgent):
         python_file: Dict[str, Any], 
         modifications: List[CodeModification]
     ) -> Dict[str, Any]:
-        """Apply modifications to create converted Python file."""
+        """Apply modifications to create converted Python file, preserving imports."""
 
         # Create a deep copy of the Python file
         converted_file = json.loads(json.dumps(python_file))
         
-        # Get lines
-        lines = converted_file.get("lines", [])
+        # Get original content
+        original_content = converted_file.get("content", "")
         
-        # Apply modifications by finding matching lines
+        # Separate code sections using the code processor
+        sections = self.code_processor.separate_code_sections(original_content, "python")
+        
+        # Only apply modifications to the main code section (preserve imports)
+        main_code_lines = sections["main_code"].split('\n') if sections["main_code"] else []
+        
+        # Apply modifications only to main code lines
         for mod in modifications:
-            # Find the line that matches the original code
-            for i, line in enumerate(lines):
+            # Skip modifications that would affect import sections
+            if self._modification_affects_imports(mod, sections["imports"]):
+                logger.info(f"Skipped modification to import section: {mod.original_code[:50]}...")
+                continue
+                
+            # Find the line that matches the original code in main code section
+            for i, line in enumerate(main_code_lines):
                 if mod.original_code.strip() in line.strip():
                     if mod.change_type == "replace":
-                        lines[i] = mod.modified_code
+                        main_code_lines[i] = mod.modified_code
                     elif mod.change_type == "insert":
-                        lines.insert(i, mod.modified_code)
+                        main_code_lines.insert(i, mod.modified_code)
                     elif mod.change_type == "delete":
-                        lines.pop(i)
+                        main_code_lines.pop(i)
+                    elif mod.change_type == "modify":
+                        main_code_lines[i] = mod.modified_code
                     break
 
-        # Update the content
-        converted_file["lines"] = lines
-        converted_file["content"] = "\n".join(lines)
+        # Update the main code section
+        sections["main_code"] = '\n'.join(main_code_lines)
+        
+        # Reconstruct the complete file with preserved imports
+        reconstructed_content = self.code_processor.reconstruct_file(sections, "python")
+        
+        # Update the converted file
+        converted_file["lines"] = reconstructed_content.split('\n')
+        converted_file["content"] = reconstructed_content
+        converted_file["sections"] = sections  # Store section info for debugging
 
-        # Add Unity Catalog metadata
-        self._add_unity_catalog_metadata_to_python(converted_file)
+        # Add Unity Catalog metadata (this will be added to imports section)
+        self._add_unity_catalog_metadata_to_python(converted_file, sections)
         
         return converted_file
 
@@ -215,6 +241,23 @@ class CodeGenerationAgent(BaseAgent):
 
         # Update cell source
         cell["source"] = source_lines
+
+    def _modification_affects_imports(self, modification: CodeModification, imports_section: str) -> bool:
+        """Check if a modification would affect the imports section."""
+        
+        # If the original code appears in the imports section, skip it
+        if modification.original_code.strip() in imports_section:
+            return True
+        
+        # Check if the modification is specifically targeting import statements
+        import_keywords = ['import ', 'from ', 'import\t', 'from\t']
+        original_code_lower = modification.original_code.lower().strip()
+        
+        for keyword in import_keywords:
+            if original_code_lower.startswith(keyword):
+                return True
+        
+        return False
 
     def _add_unity_catalog_metadata(self, notebook: Dict[str, Any]) -> None:
         """Add Unity Catalog metadata to the notebook."""
@@ -253,11 +296,9 @@ class CodeGenerationAgent(BaseAgent):
         # Insert at the beginning
         notebook["cells"].insert(0, conversion_cell)
 
-    def _add_unity_catalog_metadata_to_python(self, python_file: Dict[str, Any]) -> None:
+    def _add_unity_catalog_metadata_to_python(self, python_file: Dict[str, Any], sections: Dict[str, Any] = None) -> None:
         """Add Unity Catalog metadata to the Python file."""
 
-        lines = python_file.get("lines", [])
-        
         # Add header comment
         header_comment = [
             "# Unity Catalog Converted Python File",
@@ -265,21 +306,44 @@ class CodeGenerationAgent(BaseAgent):
             "#",
             "# Changes Made:",
             "# - Updated table references to use three-part naming (catalog.schema.table)",
-            "# - Modified Spark configurations for Unity Catalog",
+            "# - Modified Spark configurations for Unity Catalog", 
             "# - Updated SQL queries for UC compatibility",
             "# - Added Unity Catalog-specific configurations",
+            "# - Preserved original import statements (imports are not modified during UC conversion)",
             "#",
             "# Next Steps:",
             "# 1. Review the converted code for accuracy",
-            "# 2. Test the file in your Unity Catalog environment",
+            "# 2. Test the file in your Unity Catalog environment", 
             "# 3. Update any hardcoded catalog/schema names as needed",
             "# 4. Verify data access permissions",
             "#"
         ]
         
-        # Insert header at the beginning
-        python_file["lines"] = header_comment + lines
-        python_file["content"] = "\n".join(python_file["lines"])
+        if sections:
+            # If we have sections, add header to the beginning and reconstruct
+            header_content = '\n'.join(header_comment) + '\n'
+            
+            # Add header at the very beginning, before docstring and imports
+            reconstructed_sections = {
+                "imports": sections.get("imports", ""),
+                "docstring": sections.get("docstring", ""),
+                "main_code": sections.get("main_code", ""),
+                "metadata": sections.get("metadata", {})
+            }
+            
+            # Prepend header
+            if reconstructed_sections["docstring"]:
+                content = header_content + reconstructed_sections["docstring"] + '\n' + reconstructed_sections["imports"] + '\n' + reconstructed_sections["main_code"]
+            else:
+                content = header_content + reconstructed_sections["imports"] + '\n' + reconstructed_sections["main_code"]
+            
+            python_file["content"] = content
+            python_file["lines"] = content.split('\n')
+        else:
+            # Fallback to original behavior
+            lines = python_file.get("lines", [])
+            python_file["lines"] = header_comment + lines
+            python_file["content"] = "\n".join(python_file["lines"])
 
     def _save_converted_notebook(
         self, 

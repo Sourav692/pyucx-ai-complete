@@ -13,12 +13,18 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from .base_agent import BaseAgent
 from ..core.agent_state import AgentState, CodeModification
+from ..utils.code_processor import CodeSectionProcessor, detect_unity_catalog_patterns
 
 logger = logging.getLogger(__name__)
 
 
 class ModifierAgent(BaseAgent):
     """Agent responsible for generating code modifications."""
+
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize the modifier agent."""
+        super().__init__(config)
+        self.code_processor = CodeSectionProcessor()
 
     def execute(self, state: AgentState) -> AgentState:
         """Generate specific code modifications for Unity Catalog migration."""
@@ -474,12 +480,28 @@ class ModifierAgent(BaseAgent):
         lines: List[str], 
         file_path: str
     ) -> List[CodeModification]:
-        """Generate proactive modifications for Python files."""
+        """Generate proactive modifications for Python files, excluding imports."""
 
         modifications = []
+        content = '\n'.join(lines)
+        
+        # Separate code sections to exclude imports
+        sections = self.code_processor.separate_code_sections(content, "python")
+        main_code = sections.get("main_code", "")
+        main_code_lines = main_code.split('\n') if main_code else []
+        
+        # Calculate offset to adjust line numbers for the main code section
+        imports_lines_count = len(sections.get("imports", "").split('\n')) if sections.get("imports") else 0
+        docstring_lines_count = len(sections.get("docstring", "").split('\n')) if sections.get("docstring") else 0
+        line_offset = imports_lines_count + docstring_lines_count
 
-        for line_index, line in enumerate(lines):
+        # Only process main code lines (excluding imports)
+        for line_index, line in enumerate(main_code_lines):
             line = line.strip()
+
+            # Skip empty lines
+            if not line:
+                continue
 
             # Proactive Spark configuration
             if "SparkSession.builder" in line and "enableHiveSupport" in line:
@@ -491,11 +513,11 @@ class ModifierAgent(BaseAgent):
                 mod = CodeModification(
                     file_path=file_path,
                     cell_index=0,
-                    line_number=line_index,
+                    line_number=line_index + line_offset,  # Adjust for imports section
                     change_type="replace",
                     original_code=line,
                     modified_code=modified_line,
-                    reason="Proactive Unity Catalog configuration",
+                    reason="Proactive Unity Catalog configuration (imports preserved)",
                     issue_type="proactive",
                     confidence_level=0.9,
                     requires_testing=True,
@@ -504,6 +526,33 @@ class ModifierAgent(BaseAgent):
                 )
                 modifications.append(mod)
 
+            # Detect and modify table references in main code only
+            uc_patterns = detect_unity_catalog_patterns(line)
+            for pattern in uc_patterns:
+                if pattern["type"] == "table_reference":
+                    table_name = pattern["table_name"]
+                    new_table_ref = self._get_dynamic_table_reference(table_name)
+                    
+                    if new_table_ref != table_name:
+                        modified_line = line.replace(table_name, new_table_ref)
+                        
+                        mod = CodeModification(
+                            file_path=file_path,
+                            cell_index=0,
+                            line_number=line_index + line_offset,
+                            change_type="replace",
+                            original_code=line,
+                            modified_code=modified_line,
+                            reason=f"Convert table reference to Unity Catalog three-part naming (imports preserved)",
+                            issue_type="table_reference",
+                            confidence_level=0.8,
+                            requires_testing=True,
+                            breaking_change=False,
+                            documentation_needed=False
+                        )
+                        modifications.append(mod)
+
+        logger.info(f"Generated {len(modifications)} proactive modifications (imports preserved)")
         return modifications
 
     def _get_dynamic_table_reference(self, table_ref: str) -> str:

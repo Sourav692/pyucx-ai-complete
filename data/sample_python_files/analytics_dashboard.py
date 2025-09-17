@@ -1,8 +1,6 @@
 # Data Analytics Dashboard
 # Advanced analytics using Databricks and PySpark with legacy table references.
 
-import databricks.sql as sql
-from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 
 # Load analytics data from hive_metastore
@@ -22,7 +20,7 @@ user_stats = spark.sql('''
 ''')
 
 # Save results using databricks utilities
-user_stats.write.saveAsTable('analytics_summary')
+user_stats.write.saveAsTable('analytics.analytics_summary')
 
 # Use dbutils for file operations
 dbutils.fs.cp('/mnt/analytics/', '/mnt/archive/')
