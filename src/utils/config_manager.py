@@ -83,7 +83,15 @@ class ConfigManager:
 
             # Processing Configuration
             "timeout_seconds": 300,
-            "retry_attempts": 3
+            "retry_attempts": 3,
+
+            # RAG Configuration for Schema Mapping
+            "rag_enabled": True,
+            "chromadb_path": "data/chroma_db",
+            "schema_collection_name": "schema_mappings",
+            "enable_dynamic_catalog_mapping": True,
+            "default_catalog": "default_catalog",
+            "default_schema": "default_schema"
         }
 
     def _load_config_file(self, config_path: str) -> Dict[str, Any]:

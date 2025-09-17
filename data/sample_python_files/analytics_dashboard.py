@@ -6,7 +6,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 
 # Load analytics data from hive_metastore
-analytics_df = spark.sql('SELECT * FROM hive_metastore.analytics.user_behavior')
+analytics_df = spark.sql('SELECT * FROM analytics.user_behavior')
 events_df = spark.read.table('analytics.event_log')
 metrics_df = spark.read.table('analytics.performance_metrics')
 

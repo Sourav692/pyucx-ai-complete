@@ -29,6 +29,7 @@ from ..agents.modifier_agent import ModifierAgent
 from ..agents.validator_agent import ValidatorAgent
 from ..agents.code_generation_agent import CodeGenerationAgent
 from ..agents.reporter_agent import ReporterAgent
+from ..services.schema_mapping_rag import SchemaMappingRAG
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +43,28 @@ class PyUCXFramework:
         self.checkpointer = None
         self.workflow = None
 
-        # Initialize agents
+        # Initialize RAG service for dynamic schema mapping
+        self.rag_service = None
+        if config.get("rag_enabled", True):
+            try:
+                self.rag_service = SchemaMappingRAG(
+                    db_path=config.get("chromadb_path", "data/chroma_db"),
+                    collection_name=config.get("schema_collection_name", "schema_mappings")
+                )
+                logger.info("RAG service initialized for dynamic catalog mapping")
+            except Exception as e:
+                logger.warning(f"Failed to initialize RAG service: {e}")
+                logger.info("Falling back to static catalog mapping")
+
+        # Initialize agents with RAG service
+        agent_config = {**config, "rag_service": self.rag_service}
         self.agents = {
-            "analyzer": AnalyzerAgent(config),
-            "planner": PlannerAgent(config),
-            "modifier": ModifierAgent(config),
-            "validator": ValidatorAgent(config),
-            "code_generation": CodeGenerationAgent(config),
-            "reporter": ReporterAgent(config)
+            "analyzer": AnalyzerAgent(agent_config),
+            "planner": PlannerAgent(agent_config),
+            "modifier": ModifierAgent(agent_config),
+            "validator": ValidatorAgent(agent_config),
+            "code_generation": CodeGenerationAgent(agent_config),
+            "reporter": ReporterAgent(agent_config)
         }
 
         self._setup_checkpointer()

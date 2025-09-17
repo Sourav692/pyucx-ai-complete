@@ -1,0 +1,59 @@
+{
+  "schema_mappings": [
+    {
+      "source_schema": "sales",
+      "target_catalog": "catalog2",
+      "target_schema": "sales",
+      "description": "Sales domain data including transactions, customers, and products",
+      "metadata": {
+        "domain": "sales",
+        "priority": "high",
+        "data_sensitivity": "medium"
+      }
+    },
+    {
+      "source_schema": "analytics",
+      "target_catalog": "catalog1",
+      "target_schema": "analytics",
+      "description": "Analytics domain data including user behavior, events, and metrics",
+      "metadata": {
+        "domain": "analytics",
+        "priority": "high",
+        "data_sensitivity": "low"
+      }
+    },
+    {
+      "source_schema": "finance",
+      "target_catalog": "catalog2",
+      "target_schema": "finance",
+      "description": "Financial data including accounting, budgets, and reporting",
+      "metadata": {
+        "domain": "finance",
+        "priority": "critical",
+        "data_sensitivity": "high"
+      }
+    },
+    {
+      "source_schema": "marketing",
+      "target_catalog": "catalog1",
+      "target_schema": "marketing",
+      "description": "Marketing data including campaigns, leads, and attribution",
+      "metadata": {
+        "domain": "marketing",
+        "priority": "medium",
+        "data_sensitivity": "medium"
+      }
+    },
+    {
+      "source_schema": "operations",
+      "target_catalog": "catalog3",
+      "target_schema": "operations",
+      "description": "Operational data including logistics, inventory, and supply chain",
+      "metadata": {
+        "domain": "operations",
+        "priority": "medium",
+        "data_sensitivity": "low"
+      }
+    }
+  ]
+}

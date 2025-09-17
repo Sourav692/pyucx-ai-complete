@@ -191,46 +191,86 @@ class ModifierAgent(BaseAgent):
             return self._modify_general_code(line, message)
 
     def _modify_spark_code(self, line: str, message: str) -> str:
-        """Modify Spark-related code for Unity Catalog."""
+        """Modify Spark-related code for Unity Catalog using dynamic catalog mapping."""
 
         # Simple string-based replacements for common patterns
         if "spark.read.table(" in line:
-            # Extract table name and add catalog.schema prefix
+            # Extract table name and add dynamic catalog.schema prefix
             import re
-            match = re.search(r'spark\.read\.table\(["\'](\w+)["\']\)', line)
+            match = re.search(r'spark\.read\.table\(["\']([^"\']+)["\']\)', line)
             if match:
-                table_name = match.group(1)
-                return line.replace(f'"{table_name}"', f'"main.default.{table_name}"')
+                table_ref = match.group(1)
+                new_table_ref = self._get_dynamic_table_reference(table_ref)
+                return line.replace(f'"{table_ref}"', f'"{new_table_ref}"').replace(f"'{table_ref}'", f"'{new_table_ref}'")
 
         if "saveAsTable(" in line:
             # Update saveAsTable calls
             import re
-            match = re.search(r'saveAsTable\(["\'](\w+)["\']\)', line)
+            match = re.search(r'saveAsTable\(["\']([^"\']+)["\']\)', line)
             if match:
-                table_name = match.group(1)
-                return line.replace(f'"{table_name}"', f'"main.default.{table_name}"')
+                table_ref = match.group(1)
+                new_table_ref = self._get_dynamic_table_reference(table_ref)
+                return line.replace(f'"{table_ref}"', f'"{new_table_ref}"').replace(f"'{table_ref}'", f"'{new_table_ref}'")
 
         return line
 
     def _modify_sql_code(self, line: str, message: str) -> str:
-        """Modify SQL code for Unity Catalog."""
+        """Modify SQL code for Unity Catalog using dynamic catalog mapping."""
+        import re
+        
+        modified_line = line
+        
+        # Comprehensive SQL table reference patterns
+        sql_patterns = [
+            # FROM clauses
+            (r"\bFROM\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "FROM"),
+            # JOIN clauses
+            (r"\bJOIN\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "JOIN"),
+            (r"\bINNER\s+JOIN\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "INNER JOIN"),
+            (r"\bLEFT\s+JOIN\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "LEFT JOIN"),
+            (r"\bRIGHT\s+JOIN\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "RIGHT JOIN"),
+            (r"\bFULL\s+OUTER\s+JOIN\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "FULL OUTER JOIN"),
+            # CREATE TABLE
+            (r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "CREATE TABLE"),
+            # INSERT INTO
+            (r"\bINSERT\s+INTO\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "INSERT INTO"),
+            # UPDATE
+            (r"\bUPDATE\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "UPDATE"),
+            # DELETE FROM
+            (r"\bDELETE\s+FROM\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "DELETE FROM"),
+            # WITH clauses
+            (r"\bWITH\s+\w+\s+AS\s*\(\s*SELECT\s+.*?\s+FROM\s+([a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*)", "WITH"),
+        ]
+        
+        for pattern, clause_type in sql_patterns:
+            matches = re.finditer(pattern, modified_line, flags=re.IGNORECASE)
+            for match in reversed(list(matches)):  # Reverse to avoid index shifting
+                table_ref = match.group(1)
+                # Skip if table reference already has 3+ parts or contains functions
+                if table_ref.count('.') >= 2 or '(' in table_ref or ')' in table_ref:
+                    continue
+                    
+                new_table_ref = self._get_dynamic_table_reference(table_ref)
+                # Replace only the specific match, not all occurrences
+                start, end = match.span(1)
+                modified_line = modified_line[:start] + new_table_ref + modified_line[end:]
+        
+        # Handle spark.sql() with table references
+        if "spark.sql(" in modified_line:
+            # Look for table references within the SQL string
+            sql_string_pattern = r"spark\.sql\(['\"]([^'\"]*)['\"]"
+            sql_match = re.search(sql_string_pattern, modified_line)
+            if sql_match:
+                sql_content = sql_match.group(1)
+                modified_sql = self._modify_sql_code(sql_content, message)
+                if modified_sql != sql_content:
+                    quote_char = modified_line[sql_match.start(1)-1]  # Get the quote character
+                    modified_line = modified_line.replace(
+                        f"{quote_char}{sql_content}{quote_char}",
+                        f"{quote_char}{modified_sql}{quote_char}"
+                    )
 
-        # SQL modifications
-        if "SELECT" in line.upper() and "FROM" in line.upper():
-            # Add catalog.schema prefix to table names
-            import re
-            pattern = r"FROM\s+(\w+)"
-            replacement = r"FROM main.default.\1"
-            return re.sub(pattern, replacement, line, flags=re.IGNORECASE)
-
-        if "CREATE TABLE" in line.upper():
-            # Update CREATE TABLE statements
-            import re
-            pattern = r"CREATE\s+TABLE\s+(\w+)"
-            replacement = r"CREATE TABLE main.default.\1"
-            return re.sub(pattern, replacement, line, flags=re.IGNORECASE)
-
-        return line
+        return modified_line
 
     def _modify_import_code(self, line: str, message: str) -> str:
         """Modify import statements for Unity Catalog."""
@@ -256,59 +296,72 @@ class ModifierAgent(BaseAgent):
 
     def _modify_general_code(self, line: str, message: str) -> str:
         """Apply general modifications for Unity Catalog compatibility."""
+        import re
+        
+        modified_line = line
+        
+        # Handle hive_metastore references
+        if "hive_metastore" in modified_line.lower():
+            modified_line = re.sub(r'\bhive_metastore\b', 'main', modified_line, flags=re.IGNORECASE)
+        
+        # Handle spark.read.table() calls with comprehensive pattern matching
+        if "spark.read.table(" in modified_line:
+            table_pattern = r"spark\.read\.table\(['\"]([^'\"]+)['\"]"
+            for match in re.finditer(table_pattern, modified_line):
+                table_ref = match.group(1)
+                new_table_ref = self._get_dynamic_table_reference(table_ref)
+                modified_line = modified_line.replace(match.group(0), 
+                    f"spark.read.table('{new_table_ref}')")
 
-        # General patterns that need attention
-        if "hive_metastore" in line.lower():
-            return line.replace("hive_metastore", "main")
-        
-        # Handle table references that need three-part naming
-        if "should use three-part naming" in message.lower():
-            # Extract table name from the line and add catalog.schema prefix
-            import re
-            # Look for table references in SQL
-            if "FROM" in line.upper() or "JOIN" in line.upper():
-                # Simple table name patterns
-                patterns = [
-                    (r"FROM\s+(\w+)", r"FROM main.default.\1"),
-                    (r"JOIN\s+(\w+)", r"JOIN main.default.\1"),
-                    (r"table\(['\"](\w+)['\"]", r"table('main.default.\1'"),
-                    (r"saveAsTable\(['\"](\w+)['\"]", r"saveAsTable('main.default.\1'")
-                ]
-                
-                for pattern, replacement in patterns:
-                    if re.search(pattern, line, re.IGNORECASE):
-                        return re.sub(pattern, replacement, line, flags=re.IGNORECASE)
-        
-        # Handle specific table references
-        if "event_log" in line and "FROM" in line.upper():
-            return line.replace("event_log", "main.default.event_log")
-        if "performance_metrics" in line and "FROM" in line.upper():
-            return line.replace("performance_metrics", "main.default.performance_metrics")
-        if "user_profiles" in line and "JOIN" in line.upper():
-            return line.replace("user_profiles", "main.default.user_profiles")
-        if "analytics_summary" in line and "saveAsTable" in line:
-            return line.replace("analytics_summary", "main.default.analytics_summary")
-        
-        # Handle spark.read.table() calls
-        if "spark.read.table(" in line:
-            # Extract table name and add catalog.schema prefix
-            import re
-            table_matches = re.findall(r"spark\.read\.table\(['\"](\w+)['\"]", line)
-            for table_name in table_matches:
-                if '.' not in table_name:  # Only modify if not already three-part naming
-                    line = line.replace(f"'{table_name}'", f"'main.default.{table_name}'")
-                    line = line.replace(f'"{table_name}"', f'"main.default.{table_name}"')
-        
         # Handle saveAsTable calls
-        if "saveAsTable(" in line:
-            import re
-            table_matches = re.findall(r"saveAsTable\(['\"](\w+)['\"]", line)
-            for table_name in table_matches:
-                if '.' not in table_name:  # Only modify if not already three-part naming
-                    line = line.replace(f"'{table_name}'", f"'main.default.{table_name}'")
-                    line = line.replace(f'"{table_name}"', f'"main.default.{table_name}"')
+        if "saveAsTable(" in modified_line:
+            table_pattern = r"saveAsTable\(['\"]([^'\"]+)['\"]"
+            for match in re.finditer(table_pattern, modified_line):
+                table_ref = match.group(1)
+                new_table_ref = self._get_dynamic_table_reference(table_ref)
+                modified_line = modified_line.replace(match.group(0), 
+                    f"saveAsTable('{new_table_ref}')")
+        
+        # Handle writeTable calls
+        if "writeTable(" in modified_line:
+            table_pattern = r"writeTable\(['\"]([^'\"]+)['\"]"
+            for match in re.finditer(table_pattern, modified_line):
+                table_ref = match.group(1)
+                new_table_ref = self._get_dynamic_table_reference(table_ref)
+                modified_line = modified_line.replace(match.group(0), 
+                    f"writeTable('{new_table_ref}')")
 
-        return line
+        # Handle createOrReplaceTempView calls
+        if "createOrReplaceTempView(" in modified_line:
+            # Temp views don't need catalog prefixes, but log for awareness
+            logger.debug(f"Temp view found in line: {modified_line.strip()}")
+        
+        # Handle SQL strings in general code (not just spark.sql)
+        # Look for SQL keywords followed by table references
+        sql_in_string_patterns = [
+            r"['\"]([^'\"]*\bFROM\s+[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*[^'\"]*)['\"]",
+            r"['\"]([^'\"]*\bJOIN\s+[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*[^'\"]*)['\"]",
+            r"['\"]([^'\"]*\bUPDATE\s+[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*[^'\"]*)['\"]",
+            r"['\"]([^'\"]*\bINSERT\s+INTO\s+[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*[^'\"]*)['\"]"
+        ]
+        
+        for pattern in sql_in_string_patterns:
+            matches = list(re.finditer(pattern, modified_line, flags=re.IGNORECASE))
+            for match in reversed(matches):  # Process in reverse to avoid index issues
+                sql_content = match.group(1)
+                modified_sql = self._modify_sql_code(sql_content, message)
+                if modified_sql != sql_content:
+                    modified_line = modified_line.replace(sql_content, modified_sql)
+
+        # Handle table references in comments or configuration
+        if "#" in modified_line and any(keyword in modified_line.lower() for keyword in ['table', 'schema', 'catalog']):
+            # Add a note about Unity Catalog if this seems like a table reference comment
+            comment_pattern = r"#.*(?:table|schema|catalog)"
+            if re.search(comment_pattern, modified_line, re.IGNORECASE):
+                if "unity catalog" not in modified_line.lower():
+                    modified_line += " # TODO: Verify Unity Catalog compatibility"
+
+        return modified_line
 
     def _assess_confidence(self, category: str, message: str) -> float:
         """Assess confidence level for the modification."""
@@ -452,3 +505,61 @@ class ModifierAgent(BaseAgent):
                 modifications.append(mod)
 
         return modifications
+
+    def _get_dynamic_table_reference(self, table_ref: str) -> str:
+        """
+        Convert a table reference to three-part naming using dynamic catalog mapping.
+
+        Args:
+            table_ref: Table reference (e.g., 'table', 'schema.table', 'catalog.schema.table')
+
+        Returns:
+            Three-part table reference using dynamic catalog mapping
+        """
+        # Clean the table reference
+        table_ref = table_ref.strip()
+        
+        # Check if already a three-part name
+        parts = table_ref.split('.')
+        if len(parts) >= 3:
+            return table_ref  # Already properly formatted
+            
+        # Check if RAG service is available
+        rag_service = self.config.get("rag_service")
+        if rag_service:
+            try:
+                return rag_service.get_three_part_name(table_ref)
+            except Exception as e:
+                logger.debug(f"RAG service failed for table '{table_ref}': {e}")
+
+        # Improved static mapping with better schema inference
+        if len(parts) == 1:
+            # Just table name - infer schema based on table name patterns
+            table_name = parts[0]
+            
+            # Infer schema based on common patterns
+            if any(pattern in table_name.lower() for pattern in ['sales', 'customer', 'product', 'order']):
+                schema = 'sales'
+            elif any(pattern in table_name.lower() for pattern in ['analytics', 'metrics', 'event', 'behavior', 'stats']):
+                schema = 'analytics'
+            elif any(pattern in table_name.lower() for pattern in ['user', 'profile', 'account']):
+                schema = 'users'
+            elif table_name.lower().startswith('raw_'):
+                schema = 'raw'
+            elif table_name.lower().startswith('processed_'):
+                schema = 'processed'
+            else:
+                schema = 'default'
+                
+            # Use appropriate catalog
+            catalog = self.config.get("default_catalog", "main")
+            return f"{catalog}.{schema}.{table_name}"
+
+        elif len(parts) == 2:
+            # schema.table format - use default catalog
+            catalog = self.config.get("default_catalog", "main")
+            return f"{catalog}.{table_ref}"
+
+        else:
+            # Fallback - shouldn't happen but just in case
+            return table_ref
