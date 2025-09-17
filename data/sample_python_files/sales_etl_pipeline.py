@@ -4,12 +4,10 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 
-spark = SparkSession.builder.appName('SalesETL').enableHiveSupport().getOrCreate()
-
 # Read from tables - needs UC migration
-sales_df = spark.read.table('raw_sales_data')
-customers_df = spark.read.table('customer_master')
-products_df = spark.read.table('product_catalog')
+sales_df = spark.read.table('sales.raw_sales_data')
+customers_df = spark.read.table('sales.customer_master')
+products_df = spark.read.table('sales.product_catalog')
 
 # Transform and join data
 result_df = sales_df.join(customers_df, 'customer_id') \
@@ -20,7 +18,7 @@ result_df = sales_df.join(customers_df, 'customer_id') \
         .otherwise('Low'))
 
 # Write to target tables - needs UC migration
-result_df.write.mode('overwrite').saveAsTable('processed_sales_fact')
+result_df.write.mode('overwrite').saveAsTable('sales.processed_sales_fact')
 
 # SQL operations
-spark.sql('CREATE TABLE IF NOT EXISTS sales_summary AS SELECT * FROM processed_sales_fact')
+spark.sql('CREATE TABLE IF NOT EXISTS sales.sales_summary AS SELECT * FROM sales.processed_sales_fact')
